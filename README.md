@@ -5,7 +5,7 @@
 [![pkg.go.dev](https://img.shields.io/badge/dev-reference-007d9c?logo=go&logoColor=white&style=flat)](https://pkg.go.dev/github.com/shenghui0779/yiigo)
 [![MIT license](http://img.shields.io/badge/license-MIT-brightgreen.svg)](http://opensource.org/licenses/MIT)
 
-Go 轻量级开发通用库
+一个好用的 Go 轻量级开发通用库，有了它，省去了开发时到处找库封装的烦恼，让 Go 开发更加简单快捷
 
 ## Features
 
@@ -38,8 +38,9 @@ go get -u github.com/shenghui0779/yiigo
 
 ```go
 yiigo.Init(
-    yiigo.WithEnvDir("~/config"), // 自定义配置文件路径
-    yiigo.WithEnvWatcher(),       // 配置文件热更新
+    yiigo.WithEnvDir("/data/config"),  // 自定义配置文件路径（/data/config/yiigo.toml）
+    yiigo.WithEnvWatcher(onchange...), // 监听配置文件变化并热更新
+    yiigo.WithNSQ(consumers...),       // 初始化NSQ（需配置NSQ）
 )
 ```
 
@@ -100,7 +101,7 @@ nsqd = "127.0.0.1:4150"
 [log]
 
     [log.default]
-    path = "app.log"
+    path = "logs/app.log"
     max_size = 500
     max_age = 0
     max_backups = 0
@@ -140,7 +141,7 @@ yiigo.DB().Get(&User{}, "SELECT * FROM user WHERE id = ?", 1)
 yiigo.DB("other").Get(&User{}, "SELECT * FROM user WHERE id = ?", 1)
 ```
 
-#### ORM(ent)
+#### ORM (ent)
 
 ```go
 import "<your_project>/ent"

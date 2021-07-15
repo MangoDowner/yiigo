@@ -24,7 +24,7 @@ type logConfig struct {
 
 // newLogger returns a new logger.
 func newLogger(cfg *logConfig) *zap.Logger {
-	if debug {
+	if Debug {
 		return debugLogger()
 	}
 
@@ -97,5 +97,5 @@ func Logger(name ...string) *zap.Logger {
 
 // MyTimeEncoder zap time encoder.
 func MyTimeEncoder(t time.Time, e zapcore.PrimitiveArrayEncoder) {
-	e.AppendString(t.Format("2006-01-02 15:04:05"))
+	e.AppendString(t.Local().Format("2006-01-02 15:04:05"))
 }

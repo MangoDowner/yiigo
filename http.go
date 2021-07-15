@@ -57,96 +57,124 @@ func WithHTTPTimeout(timeout time.Duration) HTTPOption {
 	}
 }
 
+type uploadmethod int
+
+const (
+	uploadbybyptes uploadmethod = iota
+	uploadbypath
+	uploadbyurl
+)
+
 // UploadForm is the interface for http upload
 type UploadForm interface {
-	// FieldName returns field name for upload
-	FieldName() string
-
-	// FileName returns filename for upload
-	FileName() string
-
-	// ExtraFields returns extra fields for upload
-	ExtraFields() map[string]string
-
-	// Buffer returns the buffer of media
-	Buffer() ([]byte, error)
+	// Write writes fields to multipart writer
+	Write(ctx context.Context, w *multipart.Writer) error
 }
 
 type httpUpload struct {
-	fieldname   string
+	filefield   string
 	filename    string
-	resourceURL string
-	extraFields map[string]string
+	method      uploadmethod
+	filefrom    string
+	filecontent []byte
+	metafield   string
+	metadata    string
 }
 
-func (u *httpUpload) FieldName() string {
-	return u.fieldname
-}
-
-func (u *httpUpload) FileName() string {
-	return u.filename
-}
-
-func (u *httpUpload) ExtraFields() map[string]string {
-	return u.extraFields
-}
-
-func (u *httpUpload) Buffer() ([]byte, error) {
-	if len(u.resourceURL) != 0 {
-		resp, err := http.Get(u.resourceURL)
-
-		if err != nil {
-			return nil, err
-		}
-
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("error http code: %d", resp.StatusCode)
-		}
-
-		return ioutil.ReadAll(resp.Body)
-	}
-
-	path, err := filepath.Abs(u.filename)
+func (u *httpUpload) Write(ctx context.Context, w *multipart.Writer) error {
+	part, err := w.CreateFormFile(u.filefield, u.filename)
 
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return ioutil.ReadFile(path)
+	switch u.method {
+	case uploadbypath:
+		if err = u.getContentByPath(); err != nil {
+			return err
+		}
+	case uploadbyurl:
+		if err = u.getContentByURL(ctx); err != nil {
+			return err
+		}
+	}
+
+	if _, err = part.Write(u.filecontent); err != nil {
+		return err
+	}
+
+	// metadata
+	if len(u.metafield) != 0 {
+		if err = w.WriteField(u.metafield, u.metadata); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
-// UploadOption configures how we set up the http upload from.
+func (u *httpUpload) getContentByPath() error {
+	path, err := filepath.Abs(u.filefrom)
+
+	if err != nil {
+		return err
+	}
+
+	u.filecontent, err = ioutil.ReadFile(path)
+
+	return err
+}
+
+func (u *httpUpload) getContentByURL(ctx context.Context) (err error) {
+	u.filecontent, err = HTTPGet(ctx, u.filefrom)
+
+	return
+}
+
+// UploadOption configures how we set up the upload from.
 type UploadOption func(u *httpUpload)
 
-// WithResourceURL specifies http upload by resource url.
-func WithResourceURL(url string) UploadOption {
+// UploadByBytes uploads by file content
+func UploadByBytes(content []byte) UploadOption {
 	return func(u *httpUpload) {
-		u.resourceURL = url
+		u.method = uploadbybyptes
+		u.filecontent = content
 	}
 }
 
-// WithExtraField specifies the extra field to http upload from.
-func WithExtraField(key, value string) UploadOption {
+// UploadByPath uploads by file path
+func UploadByPath(path string) UploadOption {
 	return func(u *httpUpload) {
-		u.extraFields[key] = value
+		u.method = uploadbypath
+		u.filefrom = filepath.Clean(path)
 	}
 }
 
-// NewUploadForm returns new upload form
+// UploadByURL uploads file by resource url
+func UploadByURL(url string) UploadOption {
+	return func(u *httpUpload) {
+		u.method = uploadbyurl
+		u.filefrom = url
+	}
+}
+
+// WithMetaField specifies the metadata field to upload from.
+func WithMetaField(name, value string) UploadOption {
+	return func(u *httpUpload) {
+		u.metafield = name
+		u.metadata = value
+	}
+}
+
+// NewUploadForm returns an upload form
 func NewUploadForm(fieldname, filename string, options ...UploadOption) UploadForm {
 	form := &httpUpload{
-		fieldname: fieldname,
+		filefield: fieldname,
 		filename:  filename,
 	}
 
-	if len(options) != 0 {
-		form.extraFields = make(map[string]string)
-
-		for _, f := range options {
-			f(form)
-		}
+	for _, f := range options {
+		f(form)
 	}
 
 	return form
@@ -167,12 +195,12 @@ type HTTPClient interface {
 	Upload(ctx context.Context, url string, form UploadForm, options ...HTTPOption) ([]byte, error)
 }
 
-type yiiclient struct {
+type httpclient struct {
 	client  *http.Client
 	timeout time.Duration
 }
 
-func (c *yiiclient) Do(ctx context.Context, req *http.Request, options ...HTTPOption) ([]byte, error) {
+func (c *httpclient) Do(ctx context.Context, req *http.Request, options ...HTTPOption) ([]byte, error) {
 	settings := &httpSettings{timeout: c.timeout}
 
 	if len(options) != 0 {
@@ -236,7 +264,7 @@ func (c *yiiclient) Do(ctx context.Context, req *http.Request, options ...HTTPOp
 	return b, nil
 }
 
-func (c *yiiclient) Get(ctx context.Context, url string, options ...HTTPOption) ([]byte, error) {
+func (c *httpclient) Get(ctx context.Context, url string, options ...HTTPOption) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 
 	if err != nil {
@@ -246,7 +274,7 @@ func (c *yiiclient) Get(ctx context.Context, url string, options ...HTTPOption) 
 	return c.Do(ctx, req, options...)
 }
 
-func (c *yiiclient) Post(ctx context.Context, url string, body []byte, options ...HTTPOption) ([]byte, error) {
+func (c *httpclient) Post(ctx context.Context, url string, body []byte, options ...HTTPOption) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 
 	if err != nil {
@@ -256,33 +284,12 @@ func (c *yiiclient) Post(ctx context.Context, url string, body []byte, options .
 	return c.Do(ctx, req, options...)
 }
 
-func (c *yiiclient) Upload(ctx context.Context, url string, form UploadForm, options ...HTTPOption) ([]byte, error) {
-	media, err := form.Buffer()
-
-	if err != nil {
-		return nil, err
-	}
-
+func (c *httpclient) Upload(ctx context.Context, url string, form UploadForm, options ...HTTPOption) ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, 4<<10)) // 4kb
 	w := multipart.NewWriter(buf)
 
-	fw, err := w.CreateFormFile(form.FieldName(), form.FileName())
-
-	if err != nil {
+	if err := form.Write(ctx, w); err != nil {
 		return nil, err
-	}
-
-	if _, err = fw.Write(media); err != nil {
-		return nil, err
-	}
-
-	// add extra fields
-	if extraFields := form.ExtraFields(); len(extraFields) != 0 {
-		for k, v := range extraFields {
-			if err = w.WriteField(k, v); err != nil {
-				return nil, err
-			}
-		}
 	}
 
 	options = append(options, WithHTTPHeader("Content-Type", w.FormDataContentType()))
@@ -302,7 +309,7 @@ func (c *yiiclient) Upload(ctx context.Context, url string, form UploadForm, opt
 
 // NewHTTPClient returns a new http client
 func NewHTTPClient(client *http.Client, defaultTimeout ...time.Duration) HTTPClient {
-	c := &yiiclient{
+	c := &httpclient{
 		client:  client,
 		timeout: defaultHTTPTimeout,
 	}
@@ -341,7 +348,7 @@ func HTTPPost(ctx context.Context, url string, body []byte, options ...HTTPOptio
 	return defaultHTTPClient.Post(ctx, url, body, options...)
 }
 
-// HTTPUpload http upload media
+// HTTPUpload http upload file
 func HTTPUpload(ctx context.Context, url string, form UploadForm, options ...HTTPOption) ([]byte, error) {
 	return defaultHTTPClient.Upload(ctx, url, form, options...)
 }

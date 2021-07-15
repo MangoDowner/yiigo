@@ -60,6 +60,21 @@ func NewSQLBuilder(driver DBDriver) SQLBuilder {
 	return &queryBuilder{driver: driver}
 }
 
+// NewMySQLBuilder returns new SQLBuilder for MySQL
+func NewMySQLBuilder() SQLBuilder {
+	return NewSQLBuilder(MySQL)
+}
+
+// NewPGSQLBuilder returns new SQLBuilder for Postgres
+func NewPGSQLBuilder() SQLBuilder {
+	return NewSQLBuilder(Postgres)
+}
+
+// NewSQLiteBuilder returns new SQLBuilder for SQLite
+func NewSQLiteBuilder() SQLBuilder {
+	return NewSQLBuilder(SQLite)
+}
+
 // SQLClause SQL clause
 type SQLClause struct {
 	table   string
@@ -131,7 +146,7 @@ func (w *queryWrapper) ToQuery() (string, []interface{}) {
 
 	query = sqlx.Rebind(sqlx.BindType(string(w.driver)), query)
 
-	if debug {
+	if Debug {
 		logger.Info(query, zap.Any("binds", binds))
 	}
 
@@ -279,7 +294,7 @@ func (w *queryWrapper) ToInsert(data interface{}) (string, []interface{}) {
 
 	query := sqlx.Rebind(sqlx.BindType(string(w.driver)), builder.String())
 
-	if debug {
+	if Debug {
 		logger.Info(query, zap.Any("binds", binds))
 	}
 
@@ -427,7 +442,7 @@ func (w *queryWrapper) ToBatchInsert(data interface{}) (string, []interface{}) {
 
 	query := sqlx.Rebind(sqlx.BindType(string(w.driver)), builder.String())
 
-	if debug {
+	if Debug {
 		logger.Info(query, zap.Any("binds", binds))
 	}
 
@@ -580,7 +595,7 @@ func (w *queryWrapper) ToUpdate(data interface{}) (string, []interface{}) {
 
 	query = sqlx.Rebind(sqlx.BindType(string(w.driver)), query)
 
-	if debug {
+	if Debug {
 		logger.Info(query, zap.Any("binds", binds))
 	}
 
@@ -677,7 +692,7 @@ func (w *queryWrapper) ToDelete() (string, []interface{}) {
 
 	query = sqlx.Rebind(sqlx.BindType(string(w.driver)), query)
 
-	if debug {
+	if Debug {
 		logger.Info(query, zap.Any("binds", binds))
 	}
 
@@ -692,7 +707,7 @@ func (w *queryWrapper) ToTruncate() string {
 
 	query := builder.String()
 
-	if debug {
+	if Debug {
 		logger.Info(query)
 	}
 

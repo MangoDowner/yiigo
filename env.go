@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -27,7 +28,7 @@ type Environment interface {
 	Reload() error
 
 	// Watcher watching env change and reload
-	Watcher()
+	Watcher(onchange func(event fsnotify.Event))
 }
 
 // EnvValue is the interface for config value
@@ -125,7 +126,7 @@ func (c *config) Reload() error {
 	return nil
 }
 
-func (c *config) Watcher() {
+func (c *config) Watcher(onchange func(event fsnotify.Event)) {
 	watcher, err := fsnotify.NewWatcher()
 
 	if err != nil {
@@ -136,12 +137,23 @@ func (c *config) Watcher() {
 
 	defer watcher.Close()
 
+	envDir, _ := filepath.Split(c.path)
+	realEnvFile, _ := filepath.EvalSymlinks(c.path)
+
 	var wg sync.WaitGroup
 
 	wg.Add(1)
 
 	go func() {
-		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("yiigo: env watcher panic", zap.Any("error", r), zap.ByteString("stack", debug.Stack()))
+			}
+
+			wg.Done()
+		}()
+
+		writeOrCreateMask := fsnotify.Write | fsnotify.Create
 
 		for {
 			select {
@@ -150,10 +162,25 @@ func (c *config) Watcher() {
 					return
 				}
 
-				if event.Op&fsnotify.Write == fsnotify.Write {
+				eventFile := filepath.Clean(event.Name)
+				currentEnvFile, _ := filepath.EvalSymlinks(c.path)
+
+				// the env file was modified or created || the real path to the env file changed (eg: k8s ConfigMap replacement)
+				if (eventFile == c.path && event.Op&writeOrCreateMask != 0) || (currentEnvFile != "" && currentEnvFile != realEnvFile) {
+					realEnvFile = currentEnvFile
+
 					if err := c.Reload(); err != nil {
 						logger.Error("yiigo: env reload error", zap.Error(err))
 					}
+
+					// reassign the 'Debug' variable
+					Debug = c.Get("app.debug").Bool()
+
+					if onchange != nil {
+						onchange(event)
+					}
+				} else if eventFile == c.path && event.Op&fsnotify.Remove&fsnotify.Remove != 0 {
+					logger.Warn("yiigo: env file removed")
 				}
 			case err, ok := <-watcher.Errors:
 				if ok { // 'Errors' channel is not closed
@@ -165,7 +192,7 @@ func (c *config) Watcher() {
 		}
 	}()
 
-	watcher.Add(c.path)
+	watcher.Add(envDir)
 
 	wg.Wait()
 }
@@ -423,10 +450,11 @@ func initEnv(settings *initSettings) {
 		logger.Panic("yiigo: load config file error", zap.Error(err))
 	}
 
-	debug = Env("app.debug").Bool()
+	// assign the 'Debug' variable
+	Debug = Env("app.debug").Bool()
 
 	if settings.envWatcher {
-		go env.Watcher()
+		go env.Watcher(settings.envOnChange)
 	}
 }
 
