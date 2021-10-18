@@ -1,4 +1,4 @@
-module github.com/shenghui0779/yiigo
+module github.com/MangoDowner/yiigo
 
 go 1.15
 
