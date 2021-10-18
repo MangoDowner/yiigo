@@ -6,10 +6,8 @@ import (
 )
 
 type cfgdb struct {
-	name    string
-	driver  DBDriver
-	dsn     string
-	options []DBOption
+	name string
+	dsn  string
 }
 
 type cfgmongo struct {
@@ -45,21 +43,6 @@ type initSetting struct {
 
 // InitOption configures how we set up the yiigo initialization.
 type InitOption func(s *initSetting)
-
-// WithDB register db.
-// [MySQL] username:password@tcp(localhost:3306)/dbname?timeout=10s&charset=utf8mb4&collation=utf8mb4_general_ci&parseTime=True&loc=Local
-// [Postgres] host=localhost port=5432 user=root password=secret dbname=test connect_timeout=10 sslmode=disable
-// [SQLite] file::memory:?cache=shared
-func WithDB(name string, driver DBDriver, dsn string, options ...DBOption) InitOption {
-	return func(s *initSetting) {
-		s.db = append(s.db, &cfgdb{
-			name:    name,
-			driver:  driver,
-			dsn:     dsn,
-			options: options,
-		})
-	}
-}
 
 // WithMongo register mongodb.
 // [DSN] mongodb://localhost:27017/?connectTimeoutMS=10000&minPoolSize=10&maxPoolSize=20&maxIdleTimeMS=60000&readPreference=primary
@@ -125,13 +108,6 @@ func Init(options ...InitOption) {
 	if len(setting.db) != 0 {
 		wg.Add(1)
 
-		go func() {
-			defer wg.Done()
-
-			for _, v := range setting.db {
-				initDB(v.name, v.driver, v.dsn, v.options...)
-			}
-		}()
 	}
 
 	if len(setting.mongo) != 0 {
